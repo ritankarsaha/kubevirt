@@ -22,7 +22,6 @@ package backendstorage
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -60,8 +59,6 @@ func basePVC(vmi *corev1.VirtualMachineInstance) string {
 }
 
 func PVCForVMI(pvcStore cache.Store, vmi *corev1.VirtualMachineInstance) *v1.PersistentVolumeClaim {
-	var legacyPVC *v1.PersistentVolumeClaim
-
 	objs := pvcStore.List()
 	for _, obj := range objs {
 		pvc := obj.(*v1.PersistentVolumeClaim)
@@ -75,12 +72,9 @@ func PVCForVMI(pvcStore cache.Store, vmi *corev1.VirtualMachineInstance) *v1.Per
 		if found && vmName == vmi.Name {
 			return pvc
 		}
-		if pvc.Name == basePVC(vmi) {
-			legacyPVC = pvc
-		}
 	}
 
-	return legacyPVC
+	return nil
 }
 
 func pvcForMigrationTargetFromStore(pvcStore cache.Store, migration *corev1.VirtualMachineInstanceMigration) *v1.PersistentVolumeClaim {
@@ -246,26 +240,8 @@ func buildRecoveryJob(jobName, launcherImage string, migration *corev1.VirtualMa
 
 }
 
-func (bs *BackendStorage) labelLegacyPVC(pvc *v1.PersistentVolumeClaim, name string) {
-	labelPatch := patch.New()
-	if len(pvc.Labels) == 0 {
-		labelPatch.AddOption(patch.WithAdd("/metadata/labels", map[string]string{PVCPrefix: name}))
-	} else {
-		labelPatch.AddOption(patch.WithReplace("/metadata/labels/"+PVCPrefix, name))
-	}
-	labelPatchPayload, err := labelPatch.GeneratePayload()
-	if err == nil {
-		_, err = bs.client.CoreV1().PersistentVolumeClaims(pvc.Namespace).Patch(context.Background(), pvc.Name, types.JSONPatchType, labelPatchPayload, metav1.PatchOptions{})
-		if err != nil {
-			log.Log.Reason(err).Warningf("failed to label legacy PVC %s/%s", pvc.Namespace, pvc.Name)
-		}
-	}
-}
-
 func IsBackendStorageVolume(v corev1.VolumeStatus) bool {
-	// TODO https://github.com/kubevirt/kubevirt/issues/17369
-	// simplify to volume.Name == VolumeName
-	return strings.HasPrefix(v.Name, PVCPrefix)
+	return v.Name == VolumeName
 }
 
 func CurrentPVCName(vmi *corev1.VirtualMachineInstance) string {
@@ -568,10 +544,6 @@ func (bs *BackendStorage) CreatePVCForVMI(vmi *corev1.VirtualMachineInstance) (*
 	pvc := PVCForVMI(bs.pvcStore, vmi)
 	if pvc == nil {
 		return bs.createPVC(vmi, map[string]string{PVCPrefix: vmi.Name})
-	}
-
-	if _, exists := pvc.Labels[PVCPrefix]; !exists {
-		bs.labelLegacyPVC(pvc, vmi.Name)
 	}
 
 	return pvc, nil

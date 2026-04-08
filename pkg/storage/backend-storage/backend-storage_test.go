@@ -295,45 +295,6 @@ var _ = Describe("Backend Storage", func() {
 		})
 	})
 
-	Context("Legacy PVCs", func() {
-		var k8sClient *k8sfake.Clientset
-
-		const (
-			nsName  = "testns"
-			vmiName = "testvmi"
-			pvcName = "persistent-state-for-" + vmiName
-		)
-
-		BeforeEach(func() {
-			k8sClient = k8sfake.NewSimpleClientset()
-			virtClient.EXPECT().CoreV1().Return(k8sClient.CoreV1()).AnyTimes()
-			legacyPVC := &v1.PersistentVolumeClaim{
-				ObjectMeta: k8smetav1.ObjectMeta{
-					Name:      pvcName,
-					Namespace: nsName,
-				},
-			}
-			pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(nsName).Create(context.TODO(), legacyPVC, k8smetav1.CreateOptions{})
-			Expect(err).NotTo(HaveOccurred())
-			err = pvcStore.Add(pvc)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("Should get labelled by CreatePVCForVMI when called with a KubeVirt client", func() {
-			vmi := &virtv1.VirtualMachineInstance{
-				ObjectMeta: k8smetav1.ObjectMeta{
-					Name:      vmiName,
-					Namespace: nsName,
-				},
-			}
-			pvc, err := backendStorage.CreatePVCForVMI(vmi)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(pvc).NotTo(BeNil())
-			pvc, err = k8sClient.CoreV1().PersistentVolumeClaims(nsName).Get(context.TODO(), pvcName, k8smetav1.GetOptions{})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(pvc.Labels).To(HaveKeyWithValue(PVCPrefix, vmiName))
-		})
-	})
 	Context("IsBackendStorageNeeded", func() {
 		var vm *virtv1.VirtualMachine
 		var vmi *virtv1.VirtualMachineInstance
